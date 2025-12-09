@@ -1,0 +1,81 @@
+1. PHASE 1 — IAM SETUP (Security Foundation)
+Goal: EC2 must access S3 logs (or future services) without storing credentials.
+
+Create IAM Role for EC2:
+=> Go to IAM → Roles → Create role
+=> Trusted entity: AWS service
+=> Use case: EC2
+=> Attach policy:AmazonS3ReadOnlyAccess (or create a custom limited policy)
+=> Name: EC2_S3_ReadOnly_Role
+
+2. Why this matters
+=> This removes the need for access keys inside your EC2 or Docker container.
+=> Your instance now authenticates securely using IAM
+
+3. PHASE 2 — Launch EC2 (Compute Layer)
+=> Open EC2 → Launch Instance
+=> Name: docker-app-server
+=> AMI: Ubuntu 22.04
+=> Instance type: t2.micro (Free Tier)
+=> Attach IAM Role: EC2_S3_ReadOnly_Role
+
+3.1. Security Group:
+=> Allow 22 from your IP
+=> Allow 80 from anywhere
+
+Launch Instance.
+
+4. PHASE 3 — Install Docker on EC2
+SSH into instance:
+=> sudo apt update -y
+=> sudo apt upgrade -y
+=> sudo apt install docker.io
+=> sudo systemctl enable --now docker
+=> sudo usermod -aG docker ubuntu
+
+Reconnect the SSH. Then check the docker is working or not by using this command:
+=> docker ps
+
+
+5. PHASE 4 — Build a Dockerized App on EC2
+Create a simple app that proves Docker + IAM role works.
+
+5.1. Create project folder
+=> mkdir docker-project
+=> cd docker-project
+
+5.2. Create app.py file
+=> echo "from flask import Flask
+import boto3
+
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    s3 = boto3.client('s3')
+    buckets = s3.list_buckets()
+    names = [b['Name'] for b in buckets['Buckets']]
+    return 'S3 Buckets: ' + ', '.join(names)
+
+app.run(host='0.0.0.0', port=5000)" > app.py
+
+
+5.3. Create Dockerfile
+=> echo "FROM python:3.10-slim
+WORKDIR /app
+COPY app.py .
+RUN pip install flask boto3
+CMD [\"python\", \"app.py\"]" > Dockerfile
+
+
+5.4. Build and Run the Dockerfile
+=> docker build -t s3-viewer .
+=> docker run -d -p 80:5000 --name webapp s3-viewer
+
+
+6. PHASE 5 — Test the Deployment
+Open in browser:
+=> http://<EC2-Public-IP>/
+
+You should see: 
+=> S3 Buckets: bucket1, bucket2, ...
